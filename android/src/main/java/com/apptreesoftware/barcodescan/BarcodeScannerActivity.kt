@@ -9,13 +9,14 @@ import android.content.res.Configuration
 import android.graphics.*
 import android.os.Build
 import android.os.Bundle
-import android.support.v4.app.ActivityCompat
-import android.support.v4.content.ContextCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import android.util.AttributeSet
 import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat.*
 import com.google.zxing.Result
 import com.yourcompany.barcodescan.R
 import me.dm7.barcodescanner.core.DisplayUtils
@@ -121,8 +122,7 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 
     private fun requestCameraAccessIfNecessary(): Boolean {
         val array = arrayOf(Manifest.permission.CAMERA)
-        if (ContextCompat
-                .checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+        if (checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
 
             ActivityCompat.requestPermissions(this, array,
                     REQUEST_TAKE_PHOTO_CAMERA_PERMISSION)
@@ -192,10 +192,10 @@ class BarcodeScannerViewFinder : View, IViewFinder
 	private var mFramingRect: Rect? = null
 	private var scannerAlpha: Int = 0
 
-	private val mDefaultLaserColor = resources.getColor(R.color.viewfinder_laser)
-	private val mDefaultMaskColor = resources.getColor(R.color.viewfinder_mask)
-	private val mDefaultBorderColor = resources.getColor(R.color.viewfinder_border)
-	private val mDefaultClearColor = resources.getColor(R.color.viewfinder_clear)
+	private val mDefaultLaserColor = getColor(context,R.color.viewfinder_laser)
+	private val mDefaultMaskColor = getColor(context,R.color.viewfinder_mask)
+	private val mDefaultBorderColor = getColor(context,R.color.viewfinder_border)
+	private val mDefaultClearColor = getColor(context,R.color.viewfinder_clear)
 	private val mDefaultBorderStrokeWidth = resources.getInteger(R.integer.viewfinder_border_width)
 	private val mDefaultBorderLineLength = resources.getInteger(R.integer.viewfinder_border_length)
 
