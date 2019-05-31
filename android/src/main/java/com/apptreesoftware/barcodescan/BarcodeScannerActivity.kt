@@ -118,7 +118,10 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 		if (vf != null)
 		{
 			if (vf.isTouching)
+			{
+				scannerView.resumeCameraPreview(this)
 				return
+			}
 		}
 		// TODO: if dismiss automatically on result is true, i dont think this will work the way intended, might need to use a broadcaster to send a notification out to listeners, or move the plugin stuff into here, so the activity can send the messages
 		// back to the flutter app
