@@ -216,14 +216,11 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	private var mFramingRect: Rect? = null
 	private var scannerAlpha: Int = 0
 
-	private val mDefaultLaserColor = resources.getColor(R.color.viewfinder_laser)
-	private val mDefaultMaskColor = resources.getColor(R.color.viewfinder_mask)
-	private val mDefaultBorderColor = resources.getColor(R.color.viewfinder_border)
-	private val mDefaultClearColor = resources.getColor(R.color.viewfinder_clear)
 	private val mDefaultBorderStrokeWidth = resources.getInteger(R.integer.viewfinder_border_width)
 	private val mDefaultBorderLineLength = resources.getInteger(R.integer.viewfinder_border_length)
 
 	private var mLaserPaint : Paint
+	private var mLaserDisabledPaint : Paint
 	private var mFinderMaskPaint : Paint
 	private var mBorderPaint : Paint
 	private var mBorderDisabledPaint : Paint
@@ -244,15 +241,19 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	{
 		//set up laser paint
 		mLaserPaint = Paint()
-		mLaserPaint.color = mDefaultLaserColor
+		mLaserPaint.color = resources.getColor(R.color.viewfinder_laser)
 		mLaserPaint.style = Paint.Style.FILL
+
+		mLaserDisabledPaint = Paint()
+		mLaserDisabledPaint.color = resources.getColor(R.color.viewfinder_laser_disabled)
+		mLaserDisabledPaint.style = Paint.Style.FILL
 
 		//finder mask paint
 		mFinderMaskPaint = Paint()
-		mFinderMaskPaint.color = mDefaultMaskColor
+		mFinderMaskPaint.color = resources.getColor(R.color.viewfinder_mask)
 
 		mClearPaint = Paint()
-		mClearPaint.color = mDefaultClearColor
+		mClearPaint.color = resources.getColor(R.color.viewfinder_clear)
 		mClearPaint.style = Paint.Style.STROKE
 		mClearPaint.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
 		mClearPaint.isAntiAlias = true
@@ -260,13 +261,13 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 		//border paint
 		mBorderPaint = Paint()
-		mBorderPaint.color = mDefaultBorderColor
+		mBorderPaint.color = resources.getColor(R.color.viewfinder_border)
 		mBorderPaint.style = Paint.Style.STROKE
 		mBorderPaint.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
 		mBorderPaint.isAntiAlias = true
 
 		mBorderDisabledPaint = Paint()
-		mBorderDisabledPaint.color = mDefaultLaserColor
+		mBorderDisabledPaint.color = resources.getColor(R.color.viewfinder_border_disabled)
 		mBorderDisabledPaint.style = Paint.Style.STROKE
 		mBorderDisabledPaint.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
 		mBorderDisabledPaint.isAntiAlias = true
@@ -403,13 +404,13 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 		drawViewFinderMask(canvas)
 		drawViewFinderBorder(canvas)
 
-		if (mIsLaserEnabled && !touching)
+		if (mIsLaserEnabled)
 		{
 			drawLaser(canvas)
 		}
 	}
 
-	fun drawViewFinderMask(canvas: Canvas)
+	private fun drawViewFinderMask(canvas: Canvas)
 	{
 //		val width = canvas.width
 //		val height = canvas.height
@@ -421,7 +422,7 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 //		canvas.drawRect(0f, (framingRect.bottom + 1).toFloat(), width.toFloat(), height.toFloat(), mFinderMaskPaint)
 	}
 
-	fun drawViewFinderBorder(canvas: Canvas)
+	private fun drawViewFinderBorder(canvas: Canvas)
 	{
 		val holeRect = framingRect ?: return
 		val cornerSize = mBorderLineLength.toFloat()
@@ -464,15 +465,23 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 	fun drawLaser(canvas: Canvas)
 	{
-		val framingRect = framingRect
+		val framingRect = framingRect ?: return
+		val middle = framingRect.height() / 2 + framingRect.top
 
-		// Draw a red "laser scanner" line through the middle to show decoding is active
-		mLaserPaint.alpha = SCANNER_ALPHA[scannerAlpha]
-		scannerAlpha = (scannerAlpha + 1) % SCANNER_ALPHA.size
-		val middle = framingRect!!.height() / 2 + framingRect.top
-		canvas.drawRect((framingRect.left + 2).toFloat(), (middle - 1).toFloat(), (framingRect.right - 1).toFloat(), (middle + 2).toFloat(), mLaserPaint)
+		if (!touching)
+		{
+			mLaserPaint.alpha = SCANNER_ALPHA[scannerAlpha]
+			scannerAlpha = (scannerAlpha + 1) % SCANNER_ALPHA.size
 
-		postInvalidateDelayed(ANIMATION_DELAY, framingRect.left - POINT_SIZE, framingRect.top - POINT_SIZE, framingRect.right + POINT_SIZE, framingRect.bottom + POINT_SIZE)
+			canvas.drawRect((framingRect.left + 2).toFloat(), (middle - 1).toFloat(), (framingRect.right - 1).toFloat(), (middle + 2).toFloat(), mLaserPaint)
+		}
+		else
+		{
+			canvas.drawRect((framingRect.left + 2).toFloat(), (middle - 1).toFloat(), (framingRect.right - 1).toFloat(), (middle + 2).toFloat(), mLaserDisabledPaint)
+		}
+
+		if (!touching)
+			postInvalidateDelayed(ANIMATION_DELAY, framingRect.left - POINT_SIZE, framingRect.top - POINT_SIZE, framingRect.right + POINT_SIZE, framingRect.bottom + POINT_SIZE)
 	}
 
 	override fun onSizeChanged(xNew: Int, yNew: Int, xOld: Int, yOld: Int)
