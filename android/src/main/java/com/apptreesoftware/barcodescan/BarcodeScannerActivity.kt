@@ -9,6 +9,8 @@ import android.content.res.Configuration
 import android.graphics.*
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.support.v4.app.ActivityCompat
 import android.support.v4.content.ContextCompat
 import android.util.AttributeSet
@@ -36,10 +38,11 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
         val REQUEST_TAKE_PHOTO_CAMERA_PERMISSION = 100
     }
 
-	var kFlashOn = "Flash On"
-	var kFlashOff = "Flash Off"
+	private var kFlashOn = "Flash On"
+	private var kFlashOff = "Flash Off"
 
 	private var dismissAutomaticallyOnResult = true
+	private var shouldVibrateOnResult = true
 
     override fun onCreate(savedInstanceState: Bundle?)
     {
@@ -64,6 +67,11 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 		if (dismiss != null)
 		{
 			dismissAutomaticallyOnResult = dismiss
+		}
+		val vibrate = arguments?.get("vibrate_on_result") as? Boolean
+		if (vibrate != null)
+		{
+			shouldVibrateOnResult = vibrate
 		}
 
         scannerView = BarcodeScannerLayout(this)
@@ -112,6 +120,22 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 		clickedClose(null)
 	}
 
+	private fun vibrate()
+	{
+		if (!shouldVibrateOnResult) return
+
+		val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+
+		if (Build.VERSION.SDK_INT >= 26)
+		{
+			vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+		}
+		else
+		{
+			vibrator.vibrate(150)
+		}
+	}
+
     override fun handleResult(result: Result?)
 	{
 		val vf = scannerView.viewFinder
@@ -125,6 +149,8 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 		}
 		// TODO: if dismiss automatically on result is true, i dont think this will work the way intended, might need to use a broadcaster to send a notification out to listeners, or move the plugin stuff into here, so the activity can send the messages
 		// back to the flutter app
+		vibrate()
+
         val intent = Intent()
         intent.putExtra("SCAN_RESULT", result.toString())
         setResult(RESULT_OK, intent)

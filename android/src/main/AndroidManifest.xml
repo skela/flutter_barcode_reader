@@ -2,8 +2,9 @@
   package="com.yourcompany.barcodescan">
 
   <uses-permission android:name="android.permission.CAMERA" />
+  <uses-permission android:name="android.permission.VIBRATE" />
 
-  <application
+    <application
       android:theme = "@style/no_action_bar"
       >
     <activity

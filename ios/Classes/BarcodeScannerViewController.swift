@@ -1,5 +1,6 @@
 import MTBBarcodeScanner
 import UIKit
+import AVFoundation
 
 protocol BarcodeScannerViewControllerDelegate : NSObjectProtocol 
 {
@@ -24,7 +25,7 @@ class BarcodeScannerNavigationController : UINavigationController
     }
 }
 
-class BarcodeScannerViewController: UIViewController 
+class BarcodeScannerViewController : UIViewController
 {
     var previewView : UIView?
     var overlay : ScannerOverlay?
@@ -35,6 +36,7 @@ class BarcodeScannerViewController: UIViewController
     private var flashButton : UIBarButtonItem?
     
     private var wasScanning : Bool = false
+    private var shouldVibrate : Bool = true
     
     var kFlashOn = "Flash On"
     var kFlashOff = "Flash Off"
@@ -63,6 +65,10 @@ class BarcodeScannerViewController: UIViewController
         if let dismiss = arguments?["dismiss_automatically"] as? Bool
         {
             dismissAutomaticallyOnResult = dismiss
+        }
+        if let vibrate = arguments?["vibrate_on_result"] as? Bool
+        {
+            shouldVibrate = vibrate
         }
     }
     
@@ -227,6 +233,7 @@ class BarcodeScannerViewController: UIViewController
                     scanner.stopScanning()
                     scanner.didStartScanningBlock = nil
                 }
+                self.vibrate()
                 self.delegate?.barcodeScannerViewController(self,didScanBarcodeWithResult:code.stringValue)
                 if dismiss
                 {
@@ -304,6 +311,21 @@ class BarcodeScannerViewController: UIViewController
             {
                 
             }
+        }
+    }
+    
+    func vibrate()
+    {
+        guard shouldVibrate else { return }
+        
+        if #available(iOS 10.0, *)
+        {
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+        }
+        else
+        {
+            AudioServicesPlayAlertSound(SystemSoundID(kSystemSoundID_Vibrate))
         }
     }
 }
