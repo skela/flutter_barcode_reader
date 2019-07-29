@@ -8,12 +8,12 @@ class BarcodeScanner
 
   static const MethodChannel _channel = const MethodChannel('com.apptreesoftware.barcode_scan');
 
-  static Future<BarcodeScannerResult> scan({BarcodeScannerStrings strings}) async
+  static Future<BarcodeScannerResult> scan({BarcodeScannerStrings strings,bool dismissAutomatically=true}) async
   {
     try
     {
       var str = strings ?? BarcodeScannerStrings();
-      var arguments = {"strings":str.toDict};
+      var arguments = {"strings":str.toDict,"dismiss_automatically":dismissAutomatically};
       var barcode = await _channel.invokeMethod('scan',arguments);
       return Future.value(BarcodeScannerResult(barcode:barcode));
     }
