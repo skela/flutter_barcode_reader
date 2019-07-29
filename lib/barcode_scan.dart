@@ -24,6 +24,14 @@ class BarcodeScanner
     }
     return Future.value(BarcodeScannerResult(error:BarcodeScannerError.Other));
   }
+
+  static Future<bool> close() async
+  {
+    var res = await _channel.invokeMethod('close');
+    if (res is bool)
+      return Future.value(res);
+    return Future.value(false);
+  }
 }
 
 class BarcodeScannerStrings

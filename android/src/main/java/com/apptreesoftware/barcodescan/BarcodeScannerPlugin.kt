@@ -9,8 +9,10 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.PluginRegistry
 import io.flutter.plugin.common.PluginRegistry.Registrar
 
-class BarcodeScannerPlugin(val activity: Activity): MethodCallHandler,
-    PluginRegistry.ActivityResultListener {
+class BarcodeScannerPlugin(private val activity: Activity): MethodCallHandler, PluginRegistry.ActivityResultListener
+{
+  val requestCode = 12345678
+
   var result : Result? = null
   companion object {
     @JvmStatic
@@ -24,14 +26,19 @@ class BarcodeScannerPlugin(val activity: Activity): MethodCallHandler,
 
   override fun onMethodCall(call: MethodCall, result: Result): Unit
   {
-    if (call.method.equals("scan"))
+    when
     {
-      this.result = result
-      showBarcodeView(call.arguments as? HashMap<String,Any>)
-    }
-    else
-    {
-      result.notImplemented()
+        call.method == "scan" ->
+        {
+          this.result = result
+          showBarcodeView(call.arguments as? HashMap<String,Any>)
+        }
+        call.method == "close" ->
+        {
+          activity.finishActivity(requestCode)
+          result.success(true)
+        }
+        else -> result.notImplemented()
     }
   }
 
@@ -40,7 +47,7 @@ class BarcodeScannerPlugin(val activity: Activity): MethodCallHandler,
     val intent = Intent(activity, BarcodeScannerActivity::class.java)
     if (arguments != null)
       intent.putExtra("arguments",arguments)
-    activity.startActivityForResult(intent, 100)
+    activity.startActivityForResult(intent, requestCode)
   }
 
   override fun onActivityResult(code: Int, resultCode: Int, data: Intent?): Boolean
