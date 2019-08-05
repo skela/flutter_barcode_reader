@@ -25,6 +25,16 @@ class BarcodeScannerNavigationController : UINavigationController
     }
 }
 
+class BarcodeScannerStrings
+{
+    static var FlashOn = "Flash On"
+    static var FlashOff = "Flash Off"
+    static var Close = "Close"
+    static var Loading = "Loading..."
+    static var NotFound = "Not Found"
+    static var Deactivated = "Scanner Deactivated"
+}
+
 class BarcodeScannerViewController : UIViewController
 {
     var previewView : UIView?
@@ -38,11 +48,8 @@ class BarcodeScannerViewController : UIViewController
     private var wasScanning : Bool = false
     private var shouldVibrate : Bool = true
     
-    var kFlashOn = "Flash On"
-    var kFlashOff = "Flash Off"
-    var kClose = "Close"
-    
     private var dismissAutomaticallyOnResult = true
+    private var ignores = Set<String>()
     
     convenience init(arguments:[String:Any]?)
     {
@@ -51,15 +58,27 @@ class BarcodeScannerViewController : UIViewController
         {
             if let flashOn = str["btn_flash_on"]
             {
-                kFlashOn = flashOn
+                BarcodeScannerStrings.FlashOn = flashOn
             }
             if let flashOff = str["btn_flash_off"]
             {
-                kFlashOff = flashOff
+                BarcodeScannerStrings.FlashOff = flashOff
             }
             if let close = str["btn_close"]
             {
-                kClose = close
+                BarcodeScannerStrings.Close = close
+            }
+            if let loading = str["loading"]
+            {
+                BarcodeScannerStrings.Loading = loading
+            }
+            if let notFound = str["not_found"]
+            {
+                BarcodeScannerStrings.NotFound = notFound
+            }
+            if let deactivated = str["deactivated"]
+            {
+                BarcodeScannerStrings.Deactivated = deactivated
             }
         }
         if let dismiss = arguments?["dismiss_automatically"] as? Bool
@@ -106,11 +125,11 @@ class BarcodeScannerViewController : UIViewController
             {
                 return UIBarButtonItem(image:img, style:.plain, target:self, action:#selector(cancel))
             }
-            return UIBarButtonItem(title:kClose, style:.plain, target:self, action:#selector(cancel))
+            return UIBarButtonItem(title:BarcodeScannerStrings.Close, style:.plain, target:self, action:#selector(cancel))
         }
 
         let close = createCloseButton()
-        let flash = UIBarButtonItem(title:kFlashOn, style:.plain, target:self, action:#selector(toggle))
+        let flash = UIBarButtonItem(title:BarcodeScannerStrings.FlashOn, style:.plain, target:self, action:#selector(toggle))
         let flex = UIBarButtonItem(barButtonSystemItem:.flexibleSpace, target:nil, action:nil)
         toolbarItems = [close,flex,flash]
         closeButton = close
@@ -222,9 +241,9 @@ class BarcodeScannerViewController : UIViewController
             try scanner.startScanning()
             { codes in
                 
-                guard self.overlay?.isTouching == false else { return }
+                guard self.overlay?.isBusy == false else { return }
                 guard let codes = codes else { return }
-                guard let code = codes.first else { return }
+                guard let code = codes.first?.stringValue else { return }
                 
                 let dismiss = self.dismissAutomaticallyOnResult
                 
@@ -233,8 +252,17 @@ class BarcodeScannerViewController : UIViewController
                     scanner.stopScanning()
                     scanner.didStartScanningBlock = nil
                 }
-                self.vibrate()
-                self.delegate?.barcodeScannerViewController(self,didScanBarcodeWithResult:code.stringValue)
+                
+                guard self.ignores.contains(code) == false else
+                {
+                    self.overlay?.showFailure(msg:BarcodeScannerStrings.NotFound,barcode:code)
+                    return
+                }
+                
+                if dismiss { self.vibrate(.success) }
+                //self.vibrate(dismiss ? .success : .warning)
+                self.loading()
+                self.delegate?.barcodeScannerViewController(self,didScanBarcodeWithResult:code)
                 if dismiss
                 {
                     self.dismiss(animated:false, completion:nil)
@@ -253,16 +281,25 @@ class BarcodeScannerViewController : UIViewController
         self.dismiss(animated:false, completion:nil)
     }
     
+    func closeSuccessfully()
+    {
+        vibrate(.success)
+        self.dismiss(animated:false, completion:nil)
+    }
+    
     func updateFlashButton()
     {
         if !self.hasTorch()
         {
             return
         }
-        if self.isFlashOn() {
-            self.flashButton?.title = kFlashOff
-        } else {
-            self.flashButton?.title = kFlashOn
+        if self.isFlashOn()
+        {
+            self.flashButton?.title = BarcodeScannerStrings.FlashOff
+        }
+        else
+        {
+            self.flashButton?.title = BarcodeScannerStrings.FlashOn
         }
     }
     
@@ -314,18 +351,60 @@ class BarcodeScannerViewController : UIViewController
         }
     }
     
-    func vibrate()
+    func vibrate(_ type:VibrationType)
     {
         guard shouldVibrate else { return }
         
         if #available(iOS 10.0, *)
         {
             let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
+            generator.notificationOccurred(type.feedbackType)
         }
         else
         {
             AudioServicesPlayAlertSound(SystemSoundID(kSystemSoundID_Vibrate))
+        }
+    }
+    
+    func loading()
+    {
+        overlay?.loading(BarcodeScannerStrings.Loading)
+    }
+    
+    func showFailure(_ failure:[String:Any]?)
+    {
+        vibrate(.error)
+        
+        guard let failure = failure else { overlay?.showFailure(); return }
+        
+        let barcode = failure["barcode"] as? String
+        if let code = barcode
+        {
+            ignores.insert(code)
+        }
+        let msg = failure["msg"] as? String
+        let delay = failure["delay"] as? Double ?? 0
+        
+        overlay?.showFailure(msg:msg,barcode:barcode,delay:delay)
+    }
+}
+
+enum VibrationType
+{
+    case success
+    
+    case warning
+    
+    case error
+    
+    @available(iOS 10.0, *)
+    var feedbackType : UINotificationFeedbackGenerator.FeedbackType
+    {
+        switch self
+        {
+        case .success: return .success
+        case .warning: return .warning
+        case .error: return .error
         }
     }
 }

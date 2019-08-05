@@ -5,8 +5,11 @@
     <color name="viewfinder_laser">#ffcc0000</color>
     <color name="viewfinder_mask">#60000000</color>
     <color name="viewfinder_clear">#00000000</color>
-    <color name="viewfinder_border_disabled">#ffcc0000</color>
+    <color name="viewfinder_border_bad">#ffcc0000</color>
+    <color name="viewfinder_border_loading">#40000000</color>
     <color name="viewfinder_laser_disabled">#61000000</color>
     <integer name="viewfinder_border_length">60</integer>
     <integer name="viewfinder_border_width">4</integer>
+
+    <color name="viewfinder_status_text">#99000000</color>
 </resources>

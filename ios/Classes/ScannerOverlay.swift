@@ -2,8 +2,20 @@ import UIKit
 
 fileprivate extension UIColor
 {
-    static var line : UIColor { return .red }
+    static var bad : UIColor { return .red }
+    static var line : UIColor { return bad }
     static var disabledLine : UIColor { return UIColor(red: 0, green: 0, blue: 0, alpha: 0.38) }
+    
+    static var status : UIColor { return UIColor.black.withAlphaComponent(0.6) }
+    static var loading : UIColor { return UIColor.black.withAlphaComponent(0.25) }
+}
+
+enum ScannerState
+{
+    case normal
+    case loading
+    case error
+    case delayedError
 }
 
 class ScannerOverlay: UIView
@@ -13,8 +25,21 @@ class ScannerOverlay: UIView
     
     var line = UIView()
     var disabledLine = UIView()
+    var status = UILabel()
     
     private var touching = false
+    private var state : ScannerState = .normal
+    
+    var isBusy : Bool
+    {
+        switch state
+        {
+        case .normal: return touching
+        case .loading: return true
+        case .delayedError: return true
+        case .error: return touching
+        }
+    }
     
     var scanLineRect : CGRect
     {
@@ -75,6 +100,21 @@ class ScannerOverlay: UIView
         disabledLine.translatesAutoresizingMaskIntoConstraints = false
         disabledLine.isHidden = true
         addSubview(disabledLine)
+        
+        if #available(iOS 8.2, *)
+        {
+            status.font = .systemFont(ofSize:16,weight:.medium)
+        }
+        else
+        {
+            status.font = .boldSystemFont(ofSize:16)
+        }
+        status.textColor = .status
+        status.lineBreakMode = .byWordWrapping
+        status.numberOfLines = 2
+        status.textAlignment = .center
+        status.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(status)
     }
     
     private(set) var isTouching : Bool
@@ -89,8 +129,64 @@ class ScannerOverlay: UIView
             touching = value
             line.isHidden = value
             disabledLine.isHidden = !value
+            status.text = value ? BarcodeScannerStrings.Deactivated : nil
             setNeedsDisplay()
         }
+    }
+    
+    func loading(_ msg:String)
+    {
+        status.text = msg
+        state = .loading
+        stateChanged()
+    }
+    
+    func showFailure(msg:String?=nil,barcode:String?=nil,delay:Double=0)
+    {
+        if let msg = msg
+        {
+            if delay == 0
+            {
+                state = .error
+            }
+            else
+            {
+                state = .delayedError
+            }
+
+            if let barcode = barcode
+            {
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.lineSpacing = 0
+                paragraphStyle.alignment = .center
+                
+                status.attributedText = NSAttributedString(string:"\(msg)\n(ID: \(barcode))",attributes: [.paragraphStyle:paragraphStyle])
+            }
+            else
+            {
+                status.text = msg
+            }
+        }
+        else
+        {
+            state = .normal
+            status.text = nil
+        }
+        stateChanged()
+        
+        if delay > 0 && msg != nil
+        {
+            DispatchQueue.main.asyncAfter(deadline:.now() + delay)
+            {
+                self.state = .error
+                self.stateChanged()
+            }
+        }
+    }
+    
+    private func stateChanged()
+    {
+        setNeedsDisplay()
     }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?)
@@ -117,32 +213,30 @@ class ScannerOverlay: UIView
         isTouching = false
     }
     
+    var borderColor : UIColor
+    {
+        switch state
+        {
+        case .normal: return touching ? .bad : .white
+        case .loading: return .loading
+        case .error: return .bad
+        case .delayedError: return .bad
+        }
+    }
+    
     override func draw(_ rect: CGRect)
     {
-        //        let context = UIGraphicsGetCurrentContext()
-        
-        //        let overlayColor = UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.55)
-        
-        //        context?.setFillColor(overlayColor.cgColor)
-        //        context?.fill(bounds)
-        
-        // make a hole for the scanner
         let holeRect: CGRect = scanRect
         let holeRectIntersection: CGRect = holeRect.intersection(rect)
-        //        UIColor.clear.setFill()
         
-        //        let roundedHole = UIBezierPath(roundedRect: holeRectIntersection, cornerRadius: 15.0)
-        //        roundedHole.fill()
-        //UIRectFill(holeRectIntersection);
-        
-        // draw a horizontal line over the middle
         let lineRect: CGRect = scanLineRect
         line.frame = lineRect
         disabledLine.frame = lineRect
+        status.frame = CGRect(x:holeRect.minX,y:max(10,holeRect.minY-50-24),width:holeRect.width,height:50)
         
         let cornerspath = UIBezierPath(roundedRect: holeRectIntersection, cornerRadius: cornerRadius)
         cornerspath.lineWidth = 3
-        touching ? UIColor.red.setStroke() : UIColor.white.setStroke()
+        borderColor.setStroke()
         cornerspath.stroke()
         
         let path = UIBezierPath()
@@ -160,7 +254,6 @@ class ScannerOverlay: UIView
         path.addLine(to: CGPoint(x:holeRect.origin.x+holeRect.width, y: holeRect.origin.y+holeRect.height-cornerSize))
         
         path.lineWidth = 3
-        //        UIColor.clear.setStroke()
         path.stroke(with:.clear,alpha:1)
     }
 }

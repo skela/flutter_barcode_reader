@@ -2,48 +2,102 @@ package com.apptreesoftware.barcodescan
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.*
-import android.os.Build
-import android.os.Bundle
-import android.os.VibrationEffect
-import android.os.Vibrator
+import android.hardware.Camera
+import android.os.*
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
-import android.widget.Button
-import android.widget.ImageButton
-import android.widget.LinearLayout
+import android.widget.*
 import androidx.core.content.ContextCompat.*
-import com.google.zxing.Result
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.google.zxing.*
+import com.google.zxing.common.HybridBinarizer
 import com.yourcompany.barcodescan.R
+import io.flutter.plugin.common.MethodChannel
 import me.dm7.barcodescanner.core.DisplayUtils
 import me.dm7.barcodescanner.core.IViewFinder
 import me.dm7.barcodescanner.zxing.ZXingScannerView
+import java.util.*
+import kotlin.collections.HashMap
+
+class BarcodeScannerStrings
+{
+	companion object
+	{
+		var FlashOn = "Flash On"
+		var FlashOff = "Flash Off"
+		var Close = "Close"
+		var Loading = "Loading..."
+		var NotFound = "Not Found"
+		var Deactivated = "Scanner Deactivated"
+	}
+}
+
+class BarcodeScannerVibrator(arguments: HashMap<String, Any>?)
+{
+	private val shouldVibrate : Boolean = arguments?.get("vibrate_on_result") as? Boolean ?: true
+
+	fun vibrate(act:Activity,type:VibrationType)
+	{
+		if (!shouldVibrate) return
+
+		val vibrator = act.getSystemService(Activity.VIBRATOR_SERVICE) as Vibrator
+
+		if (Build.VERSION.SDK_INT >= 26)
+		{
+			vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+		}
+		else
+		{
+			vibrator.vibrate(150)
+		}
+	}
+}
+
+enum class VibrationType
+{
+	success,
+	warning,
+	error
+}
 
 class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 {
-    lateinit var scannerView : BarcodeScannerLayout
+	private val TAG = "BarcodeScannerActivity"
 
-	lateinit var camera : LinearLayout
-	lateinit var closeButton : ImageButton
-	lateinit var flashButton : Button
+    private lateinit var scannerView : BarcodeScannerLayout
+
+	private lateinit var camera : LinearLayout
+	private lateinit var closeButton : ImageButton
+	private lateinit var flashButton : Button
+	private lateinit var status : TextView
 
     companion object
     {
-        val REQUEST_TAKE_PHOTO_CAMERA_PERMISSION = 100
+        const val REQUEST_TAKE_PHOTO_CAMERA_PERMISSION = 100
+		var channel : MethodChannel.Result? = null
+		var opened : Boolean = false
     }
 
-	private var kFlashOn = "Flash On"
-	private var kFlashOff = "Flash Off"
-
 	private var dismissAutomaticallyOnResult = true
-	private var shouldVibrateOnResult = true
+
+	private lateinit var vibrator : BarcodeScannerVibrator
+	private val ignores : MutableSet<String> = mutableSetOf()
+
+	private val overlay : BarcodeScannerViewFinder?
+	get()
+	{
+		return scannerView.viewFinder
+	}
 
     override fun onCreate(savedInstanceState: Bundle?)
     {
@@ -53,61 +107,83 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 
         setContentView(R.layout.activity_barcodescanner)
 
-		var arguments : HashMap<String,Any>? = intent.getSerializableExtra("arguments") as? HashMap<String, Any>
-		var strings = arguments?.get("strings") as? HashMap<String,String>
+		val arguments : HashMap<String,Any>? = intent.getSerializableExtra("arguments") as? HashMap<String, Any>
+		val strings = arguments?.get("strings") as? HashMap<String,String>
 		if (strings!=null)
 		{
-			var flashOn = strings.get("btn_flash_on")
+			val flashOn = strings["btn_flash_on"]
 			if (flashOn != null)
-				kFlashOn = flashOn
-			var flashOff = strings.get("btn_flash_off")
+				BarcodeScannerStrings.FlashOn = flashOn
+			val flashOff = strings["btn_flash_off"]
 			if (flashOff != null)
-				kFlashOff = flashOff
+				BarcodeScannerStrings.FlashOff = flashOff
+			val loading = strings["loading"]
+			if (loading != null)
+				BarcodeScannerStrings.Loading = loading
+			val notFound = strings["not_found"]
+			if (notFound != null)
+				BarcodeScannerStrings.NotFound = notFound
+			val deactivated = strings["deactivated"]
+			if (deactivated != null)
+				BarcodeScannerStrings.Deactivated = deactivated
 		}
 		val dismiss = arguments?.get("dismiss_automatically") as? Boolean
 		if (dismiss != null)
 		{
 			dismissAutomaticallyOnResult = dismiss
 		}
-		val vibrate = arguments?.get("vibrate_on_result") as? Boolean
-		if (vibrate != null)
-		{
-			shouldVibrateOnResult = vibrate
-		}
+
+		vibrator = BarcodeScannerVibrator(arguments)
+
+		status = findViewById(R.id.status)
 
         scannerView = BarcodeScannerLayout(this)
+		scannerView.viewFinder?.status = status
 		camera = findViewById(R.id.camera)
 		camera.addView(scannerView)
 
 		closeButton = findViewById(R.id.close_button)
 		flashButton = findViewById(R.id.flash_button)
 
-		flashButton.text = kFlashOn
+		flashButton.text = BarcodeScannerStrings.FlashOn
     }
 
     override fun onResume()
 	{
         super.onResume()
+
+		opened = true
+
         scannerView.setResultHandler(this)
         // start camera immediately if permission is already given
         if (!requestCameraAccessIfNecessary()) {
             scannerView.startCamera()
         }
+
+		LocalBroadcastManager.getInstance(this).registerReceiver(receiver, IntentFilter(BarcodeScannerPlugin.kShowFailureIdentifier))
     }
 
     override fun onPause()
 	{
         super.onPause()
         scannerView.stopCamera()
+
+		LocalBroadcastManager.getInstance(this).unregisterReceiver(receiver)
     }
+
+	override fun onStop()
+	{
+		super.onStop()
+		opened = false
+	}
 
 	fun clickedToggleFlash(v: View)
 	{
 		scannerView.flash = !scannerView.flash
 		if (scannerView.flash)
-			flashButton.text = kFlashOff
+			flashButton.text = BarcodeScannerStrings.FlashOff
 		else
-			flashButton.text = kFlashOn
+			flashButton.text = BarcodeScannerStrings.FlashOn
 	}
 
 	fun clickedClose(v:View?)
@@ -121,49 +197,90 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 		clickedClose(null)
 	}
 
-	private fun vibrate()
+	private fun vibrate(type:VibrationType)
 	{
-		if (!shouldVibrateOnResult) return
+		vibrator.vibrate(this,type)
+	}
 
-		val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+	private fun loading()
+	{
+		overlay?.loading(BarcodeScannerStrings.Loading)
+	}
 
-		if (Build.VERSION.SDK_INT >= 26)
+	private fun showFailure(failure:HashMap<String,Any>?)
+	{
+		vibrate(VibrationType.error)
+
+		if (failure == null)
 		{
-			vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+			overlay?.showFailure()
+			return
 		}
-		else
+
+		val barcode = failure["barcode"] as? String
+		if (barcode != null)
 		{
-			vibrator.vibrate(150)
+			ignores.add(barcode)
 		}
+
+		val msg = failure["msg"] as? String
+		val delay = failure["delay"] as? Double ?: 0.0
+
+		overlay?.showFailure(msg,barcode,delay)
 	}
 
     override fun handleResult(result: Result?)
 	{
-		val vf = scannerView.viewFinder
+		if (channel == null)
+			return
+
+		val vf = overlay
 		if (vf != null)
 		{
-			if (vf.isTouching)
+			if (vf.isBusy)
 			{
-				scannerView.resumeCameraPreview(this)
+				Log.d(TAG,"Scanner is busy")
 				return
 			}
 		}
-		// TODO: if dismiss automatically on result is true, i dont think this will work the way intended, might need to use a broadcaster to send a notification out to listeners, or move the plugin stuff into here, so the activity can send the messages
-		// back to the flutter app
-		vibrate()
 
-        val intent = Intent()
-        intent.putExtra("SCAN_RESULT", result.toString())
-        setResult(RESULT_OK, intent)
-		if (dismissAutomaticallyOnResult)
+		val code = result.toString()
+
+		Log.d(TAG,"Scanner found code $code")
+
+		val dismiss = dismissAutomaticallyOnResult
+
+		if (dismiss)
+		{
+			scannerView.setResultHandler(null)
+		}
+
+		if (ignores.contains(code))
+		{
+			Log.d(TAG,"Scanner ignored $code")
+			overlay?.showFailure(BarcodeScannerStrings.NotFound,code)
+			return
+		}
+
+		if (dismiss)
+		{
+			vibrate(VibrationType.success)
+		}
+
+		Log.d(TAG,"Scanner loading")
+		loading()
+
+		channel?.success(code)
+
+		channel = null
+
+		if (dismiss)
         	finish()
     }
 
-    fun finishWithError(errorCode: String)
+	private fun finishWithError(errorCode: String)
 	{
-        val intent = Intent()
-        intent.putExtra("ERROR_CODE", errorCode)
-        setResult(RESULT_CANCELED, intent)
+		channel?.error(errorCode, null, null)
         finish()
     }
 
@@ -192,6 +309,22 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
             }
         }
     }
+
+	private val receiver = object : BroadcastReceiver()
+	{
+		override fun onReceive(contxt: Context?, intent: Intent?)
+		{
+			when (intent?.action)
+			{
+				BarcodeScannerPlugin.kShowFailureIdentifier ->
+				{
+					val arguments = intent.getSerializableExtra("arguments") as? HashMap<String,Any>
+					showFailure(arguments)
+				}
+				else -> {}
+			}
+		}
+	}
 }
 
 object PermissionUtil {
@@ -222,11 +355,19 @@ class BarcodeScannerLayout(context: Context?) : me.dm7.barcodescanner.zxing.ZXin
 {
 	var viewFinder : BarcodeScannerViewFinder? = null
 
+	private var resultHandler : ResultHandler? = null
+
+	private var barcodeDecoder : MultiFormatReader = MultiFormatReader()
+
 	init
 	{
 		setAutoFocus(true)
 		// this paramter will make your HUAWEI phone works great!
 		setAspectTolerance(0.5f)
+
+		val hints = EnumMap<DecodeHintType, Any>(DecodeHintType::class.java)
+		hints[DecodeHintType.POSSIBLE_FORMATS] = formats
+		barcodeDecoder.setHints(hints)
 	}
 
 	override fun createViewFinderView(context: Context): IViewFinder
@@ -235,6 +376,115 @@ class BarcodeScannerLayout(context: Context?) : me.dm7.barcodescanner.zxing.ZXin
 		viewFinder = vf
 		return vf
 	}
+
+	override fun setResultHandler(resultHandler:ResultHandler?)
+	{
+		super.setResultHandler(resultHandler)
+		this.resultHandler = resultHandler
+	}
+
+	override fun onPreviewFrame(data: ByteArray, camera: Camera)
+	{
+		var data = data
+		if (resultHandler == null)
+		{
+			return
+		}
+
+		try
+		{
+			val parameters = camera.parameters
+			val size = parameters.previewSize
+			var width = size.width
+			var height = size.height
+
+			if (DisplayUtils.getScreenOrientation(context) == Configuration.ORIENTATION_PORTRAIT)
+			{
+				val rotationCount = rotationCount
+				if (rotationCount == 1 || rotationCount == 3)
+				{
+					val tmp = width
+					width = height
+					height = tmp
+				}
+				data = getRotatedData(data, camera)
+			}
+
+			var rawResult: Result? = null
+			val source = buildLuminanceSource(data, width, height)
+
+			if (source != null)
+			{
+				var bitmap = BinaryBitmap(HybridBinarizer(source))
+				try
+				{
+					rawResult = barcodeDecoder.decodeWithState(bitmap)
+				}
+				catch (re: ReaderException)
+				{
+					// continue
+				}
+				catch (npe: NullPointerException)
+				{
+					// This is terrible
+				}
+				catch (aoe: ArrayIndexOutOfBoundsException)
+				{
+
+				}
+				finally
+				{
+					barcodeDecoder.reset()
+				}
+
+				if (rawResult == null)
+				{
+					val invertedSource = source.invert()
+					bitmap = BinaryBitmap(HybridBinarizer(invertedSource))
+					try
+					{
+						rawResult = barcodeDecoder.decodeWithState(bitmap)
+					}
+					catch (e: NotFoundException)
+					{
+						// continue
+					}
+					finally
+					{
+						barcodeDecoder.reset()
+					}
+				}
+			}
+
+			val finalRawResult = rawResult
+
+			if (finalRawResult != null)
+			{
+				val handler = Handler(Looper.getMainLooper())
+				handler.post {
+					val tmpResultHandler = resultHandler
+					tmpResultHandler?.handleResult(finalRawResult)
+					camera.setOneShotPreviewCallback(this)
+				}
+			}
+			else
+			{
+				camera.setOneShotPreviewCallback(this)
+			}
+		}
+		catch (e: RuntimeException)
+		{
+
+		}
+	}
+}
+
+enum class ScannerState
+{
+	normal,
+	loading,
+	error,
+	delayedError
 }
 
 class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
@@ -248,8 +498,6 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	private var mLaserPaint : Paint
 	private var mLaserDisabledPaint : Paint
 	private var mFinderMaskPaint : Paint
-	private var mBorderPaint : Paint
-	private var mBorderDisabledPaint : Paint
 	private var mClearPaint : Paint
 	private var mBorderLineLength: Int = 0
 	private var mSquareViewFinder: Boolean = false
@@ -259,9 +507,15 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 	private val cornerRadius : Float = 30.0f
 
+	var status : TextView? = null
+
+	private var normalBorder : Paint
+	private var badBorder : Paint
+	private var loadingBorder : Paint
+
 	constructor(context: Context) : super(context)
 
-	constructor(context: Context, attributeSet: AttributeSet) : super(context, attributeSet)
+	constructor(context: Context,attributeSet: AttributeSet) : super(context, attributeSet)
 
 	init
 	{
@@ -286,17 +540,23 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 		mClearPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
 
 		//border paint
-		mBorderPaint = Paint()
-		mBorderPaint.color = resources.getColor(R.color.viewfinder_border)
-		mBorderPaint.style = Paint.Style.STROKE
-		mBorderPaint.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
-		mBorderPaint.isAntiAlias = true
+		normalBorder = Paint()
+		normalBorder.color = resources.getColor(R.color.viewfinder_border)
+		normalBorder.style = Paint.Style.STROKE
+		normalBorder.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
+		normalBorder.isAntiAlias = true
 
-		mBorderDisabledPaint = Paint()
-		mBorderDisabledPaint.color = resources.getColor(R.color.viewfinder_border_disabled)
-		mBorderDisabledPaint.style = Paint.Style.STROKE
-		mBorderDisabledPaint.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
-		mBorderDisabledPaint.isAntiAlias = true
+		badBorder = Paint()
+		badBorder.color = resources.getColor(R.color.viewfinder_border_bad)
+		badBorder.style = Paint.Style.STROKE
+		badBorder.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
+		badBorder.isAntiAlias = true
+
+		loadingBorder = Paint()
+		loadingBorder.color = resources.getColor(R.color.viewfinder_border_loading)
+		loadingBorder.style = Paint.Style.STROKE
+		loadingBorder.strokeWidth = mDefaultBorderStrokeWidth.toFloat()
+		loadingBorder.isAntiAlias = true
 
 		mBorderLineLength = mDefaultBorderLineLength
 	}
@@ -328,6 +588,8 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 		return true
 	}
 
+	private var state : ScannerState = ScannerState.normal
+
 	private var touching = false
 	var isTouching : Boolean
 	get()
@@ -338,10 +600,73 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	{
 		val changed = value != touching
 		touching = value
+		status?.text = if (value) BarcodeScannerStrings.Deactivated else null
 		if(changed)
 		{
 			invalidate()
 		}
+	}
+
+	val isBusy : Boolean
+	get()
+	{
+		return when(state)
+		{
+			ScannerState.normal -> touching
+			ScannerState.loading -> true
+			ScannerState.delayedError -> true
+			ScannerState.error -> touching
+		}
+	}
+
+	fun loading(msg:String)
+	{
+		status?.text = msg
+		state = ScannerState.loading
+		stateChanged()
+	}
+
+	fun showFailure(msg:String?=null,barcode:String?=null,delay:Double=0.0)
+	{
+		if (msg != null)
+		{
+			state = if (delay == 0.0)
+			{
+				ScannerState.error
+			}
+			else
+			{
+				ScannerState.delayedError
+			}
+
+			if (barcode != null)
+			{
+				status?.text = "$msg\n(ID: $barcode)"
+			}
+			else
+			{
+				status?.text = msg
+			}
+		}
+		else
+		{
+			state = ScannerState.normal
+			status?.text = null
+		}
+		stateChanged()
+
+		if (delay > 0 && msg != null)
+		{
+			Handler().postDelayed({
+				state = ScannerState.error
+				stateChanged()
+			}, (delay * 1000).toLong())
+		}
+	}
+
+	private fun stateChanged()
+	{
+		invalidate()
 	}
 
 	override fun setLaserColor(laserColor: Int)
@@ -356,12 +681,12 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 	override fun setBorderColor(borderColor: Int)
 	{
-		mBorderPaint.color = borderColor
+		normalBorder.color = borderColor
 	}
 
 	override fun setBorderStrokeWidth(borderStrokeWidth: Int)
 	{
-		mBorderPaint.strokeWidth = borderStrokeWidth.toFloat()
+		normalBorder.strokeWidth = borderStrokeWidth.toFloat()
 	}
 
 	override fun setBorderLineLength(borderLineLength: Int)
@@ -378,11 +703,11 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	{
 		if (isBorderCornersRounded)
 		{
-			mBorderPaint.strokeJoin = Paint.Join.ROUND
+			normalBorder.strokeJoin = Paint.Join.ROUND
 		}
 		else
 		{
-			mBorderPaint.strokeJoin = Paint.Join.BEVEL
+			normalBorder.strokeJoin = Paint.Join.BEVEL
 		}
 	}
 
@@ -390,12 +715,12 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	{
 		val colorAlpha = (255 * alpha).toInt()
 		mBordersAlpha = alpha
-		mBorderPaint.alpha = colorAlpha
+		normalBorder.alpha = colorAlpha
 	}
 
 	override fun setBorderCornerRadius(borderCornersRadius: Int)
 	{
-		mBorderPaint.pathEffect = CornerPathEffect(borderCornersRadius.toFloat())
+		normalBorder.pathEffect = CornerPathEffect(borderCornersRadius.toFloat())
 	}
 
 	override fun setViewFinderOffset(offset: Int)
@@ -448,6 +773,18 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 //		canvas.drawRect(0f, (framingRect.bottom + 1).toFloat(), width.toFloat(), height.toFloat(), mFinderMaskPaint)
 	}
 
+	private val borderColor : Paint
+	get()
+	{
+		return when(state)
+		{
+			ScannerState.normal -> if(touching) badBorder else normalBorder
+			ScannerState.loading -> loadingBorder
+			ScannerState.error -> badBorder
+			ScannerState.delayedError -> badBorder
+		}
+	}
+
 	private fun drawViewFinderBorder(canvas: Canvas)
 	{
 		val holeRect = framingRect ?: return
@@ -456,10 +793,7 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 		val holeRectF = RectF(holeRect)
 		val pathBorder = Path()
 		pathBorder.addRoundRect(holeRectF,cornerRadius,cornerRadius,Path.Direction.CW)
-		if (touching)
-			canvas.drawPath(pathBorder,mBorderDisabledPaint)
-		else
-			canvas.drawPath(pathBorder,mBorderPaint)
+		canvas.drawPath(pathBorder,borderColor)
 
 		val path = Path()
 
@@ -562,7 +896,19 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 		val leftOffset = (viewResolution.x - width) / 2
 		val topOffset = (viewResolution.y - height) / 2
-		mFramingRect = Rect(leftOffset + mViewFinderOffset, topOffset + mViewFinderOffset, leftOffset + width - mViewFinderOffset, topOffset + height - mViewFinderOffset)
+		val rect = Rect(leftOffset + mViewFinderOffset, topOffset + mViewFinderOffset, leftOffset + width - mViewFinderOffset, topOffset + height - mViewFinderOffset)
+		mFramingRect = rect
+
+		val status = status
+		if (status != null)
+		{
+			val params = status.layoutParams as? RelativeLayout.LayoutParams
+			if (params != null)
+			{
+				params.topMargin = rect.top - status.height
+			}
+			status.layoutParams = params
+		}
 	}
 
 	companion object

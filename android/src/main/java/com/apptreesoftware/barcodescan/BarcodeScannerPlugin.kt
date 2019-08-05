@@ -2,6 +2,7 @@ package com.apptreesoftware.barcodescan
 
 import android.app.Activity
 import android.content.Intent
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
@@ -11,12 +12,17 @@ import io.flutter.plugin.common.PluginRegistry.Registrar
 
 class BarcodeScannerPlugin(private val activity: Activity): MethodCallHandler, PluginRegistry.ActivityResultListener
 {
-  val requestCode = 12345678
+  private val requestCode = 1234
 
-  var result : Result? = null
-  companion object {
+  private var vibrator : BarcodeScannerVibrator? = null
+
+  companion object
+  {
+      const val kShowFailureIdentifier = "com.apptreesoftware.barcode_scan.broadcast.show_failure"
+
     @JvmStatic
-    fun registerWith(registrar: Registrar): Unit {
+    fun registerWith(registrar: Registrar) : Unit
+    {
       val channel = MethodChannel(registrar.messenger(), "com.apptreesoftware.barcode_scan")
       val plugin = BarcodeScannerPlugin(registrar.activity())
       channel.setMethodCallHandler(plugin)
@@ -24,48 +30,62 @@ class BarcodeScannerPlugin(private val activity: Activity): MethodCallHandler, P
     }
   }
 
-  override fun onMethodCall(call: MethodCall, result: Result): Unit
+  override fun onMethodCall(call: MethodCall, result: Result) : Unit
   {
     when
     {
         call.method == "scan" ->
         {
-          this.result = result
-          showBarcodeView(call.arguments as? HashMap<String,Any>)
+          val args = call.arguments as? HashMap<String,Any>
+          vibrator = BarcodeScannerVibrator(args)
+          openScanner(args,result)
         }
         call.method == "close" ->
         {
-          activity.finishActivity(requestCode)
-          result.success(true)
+          closeScanner(result)
+        }
+        call.method == "close_successfully" ->
+        {
+          closeScanner(result,true)
+        }
+        call.method == "show_failure" ->
+        {
+          showBarcodeFailure(call.arguments as? HashMap<String,Any>)
         }
         else -> result.notImplemented()
     }
   }
 
-  private fun showBarcodeView(arguments:HashMap<String,Any>?)
+  private fun openScanner(arguments:HashMap<String,Any>?,channel:Result)
   {
+    BarcodeScannerActivity.channel = channel
+    if (BarcodeScannerActivity.opened)
+		return
     val intent = Intent(activity, BarcodeScannerActivity::class.java)
     if (arguments != null)
       intent.putExtra("arguments",arguments)
     activity.startActivityForResult(intent, requestCode)
   }
 
+  private fun closeScanner(result: Result,successfully:Boolean=false)
+  {
+    if (successfully) vibrator?.vibrate(activity,VibrationType.success)
+    activity.finishActivity(requestCode)
+    result.success(true)
+  }
+
+  private fun showBarcodeFailure(arguments:HashMap<String,Any>?)
+  {
+      val intent = Intent(kShowFailureIdentifier)
+      if (arguments != null)
+      {
+          intent.putExtra("arguments",arguments)
+      }
+      LocalBroadcastManager.getInstance(activity).sendBroadcast(intent)
+  }
+
   override fun onActivityResult(code: Int, resultCode: Int, data: Intent?): Boolean
   {
-    if (code == 100)
-    {
-      if (resultCode == Activity.RESULT_OK)
-	  {
-        val barcode = data?.getStringExtra("SCAN_RESULT")
-        barcode?.let { this.result?.success(barcode) }
-      }
-	  else
-	  {
-        val errorCode = data?.getStringExtra("ERROR_CODE")
-        this.result?.error(errorCode, null, null)
-      }
-      return true
-    }
     return false
   }
 }
