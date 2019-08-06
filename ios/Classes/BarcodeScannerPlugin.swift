@@ -1,6 +1,12 @@
 import Flutter
 import UIKit
 
+enum BarcodeScannerErrorCodes : String
+{
+    case barcodeNotFound = "BARCODE_NOT_FOUND"
+    case permissionNotGranted = "PERMISSION_NOT_GRANTED"
+}
+
 public class SwiftBarcodeScannerPlugin : NSObject,FlutterPlugin,BarcodeScannerViewControllerDelegate
 {
     @objc public static func register(with registrar:FlutterPluginRegistrar)
@@ -68,8 +74,8 @@ public class SwiftBarcodeScannerPlugin : NSObject,FlutterPlugin,BarcodeScannerVi
         callback?(result)
     }
 
-    func barcodeScannerViewController(_ controller: BarcodeScannerViewController?, didFailWithErrorCode errorCode: String)
+    func barcodeScannerViewController(_ controller: BarcodeScannerViewController?, didFailWithErrorCode errorCode: BarcodeScannerErrorCodes)
     {
-        callback?(FlutterError(code:errorCode,message:nil,details:nil))
+        callback?(FlutterError(code:errorCode.rawValue,message:nil,details:nil))
     }
 }

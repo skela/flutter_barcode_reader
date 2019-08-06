@@ -11,5 +11,5 @@
     <integer name="viewfinder_border_length">60</integer>
     <integer name="viewfinder_border_width">4</integer>
 
-    <color name="viewfinder_status_text">#99000000</color>
+    <color name="viewfinder_status_text">#FFFFFF</color>
 </resources>

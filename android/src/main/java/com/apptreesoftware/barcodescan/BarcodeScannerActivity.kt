@@ -63,6 +63,14 @@ class BarcodeScannerVibrator(arguments: HashMap<String, Any>?)
 	}
 }
 
+class BarcodeConfig
+{
+	companion object
+	{
+		const val reignoreInterval : Long = 3
+	}
+}
+
 enum class VibrationType
 {
 	success,
@@ -91,7 +99,7 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 	private var dismissAutomaticallyOnResult = true
 
 	private lateinit var vibrator : BarcodeScannerVibrator
-	private val ignores : MutableSet<String> = mutableSetOf()
+	private val ignores : MutableMap<String,Long> = mutableMapOf()
 
 	private val overlay : BarcodeScannerViewFinder?
 	get()
@@ -166,6 +174,8 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
     override fun onPause()
 	{
         super.onPause()
+		scannerView.stopped = true
+		scannerView.setResultHandler(null)
         scannerView.stopCamera()
 
 		LocalBroadcastManager.getInstance(this).unregisterReceiver(receiver)
@@ -220,7 +230,7 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 		val barcode = failure["barcode"] as? String
 		if (barcode != null)
 		{
-			ignores.add(barcode)
+			ignores[barcode] = System.currentTimeMillis() / 1000
 		}
 
 		val msg = failure["msg"] as? String
@@ -255,10 +265,19 @@ class BarcodeScannerActivity : Activity(), ZXingScannerView.ResultHandler
 			scannerView.setResultHandler(null)
 		}
 
-		if (ignores.contains(code))
+		val timestamp = ignores[code]
+
+		if (timestamp != null)
 		{
 			Log.d(TAG,"Scanner ignored $code")
 			overlay?.showFailure(BarcodeScannerStrings.NotFound,code)
+			val now = System.currentTimeMillis() / 1000
+			if (now - timestamp > BarcodeConfig.reignoreInterval)
+			{
+				ignores[code] = now
+				vibrate(VibrationType.error)
+				channel?.error("BARCODE_NOT_FOUND", null, null)
+			}
 			return
 		}
 
@@ -358,6 +377,8 @@ class BarcodeScannerLayout(context: Context?) : me.dm7.barcodescanner.zxing.ZXin
 	private var resultHandler : ResultHandler? = null
 
 	private var barcodeDecoder : MultiFormatReader = MultiFormatReader()
+
+	var stopped = false
 
 	init
 	{
@@ -464,7 +485,8 @@ class BarcodeScannerLayout(context: Context?) : me.dm7.barcodescanner.zxing.ZXin
 				handler.post {
 					val tmpResultHandler = resultHandler
 					tmpResultHandler?.handleResult(finalRawResult)
-					camera.setOneShotPreviewCallback(this)
+					if (!stopped)
+						camera.setOneShotPreviewCallback(this)
 				}
 			}
 			else
@@ -590,6 +612,12 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 	private var state : ScannerState = ScannerState.normal
 
+	private fun showStatus(msg:String?)
+	{
+		status?.visibility = if (msg == null) GONE else VISIBLE
+		status?.text = msg
+	}
+
 	private var touching = false
 	var isTouching : Boolean
 	get()
@@ -600,7 +628,7 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 	{
 		val changed = value != touching
 		touching = value
-		status?.text = if (value) BarcodeScannerStrings.Deactivated else null
+		showStatus(if (value) BarcodeScannerStrings.Deactivated else null)
 		if(changed)
 		{
 			invalidate()
@@ -621,7 +649,7 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 	fun loading(msg:String)
 	{
-		status?.text = msg
+		showStatus(msg)
 		state = ScannerState.loading
 		stateChanged()
 	}
@@ -641,17 +669,17 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 
 			if (barcode != null)
 			{
-				status?.text = "$msg\n(ID: $barcode)"
+				showStatus("$msg\n(ID: $barcode)")
 			}
 			else
 			{
-				status?.text = msg
+				showStatus(msg)
 			}
 		}
 		else
 		{
 			state = ScannerState.normal
-			status?.text = null
+			showStatus(null)
 		}
 		stateChanged()
 
@@ -898,17 +926,6 @@ class BarcodeScannerViewFinder : View, IViewFinder, View.OnTouchListener
 		val topOffset = (viewResolution.y - height) / 2
 		val rect = Rect(leftOffset + mViewFinderOffset, topOffset + mViewFinderOffset, leftOffset + width - mViewFinderOffset, topOffset + height - mViewFinderOffset)
 		mFramingRect = rect
-
-		val status = status
-		if (status != null)
-		{
-			val params = status.layoutParams as? RelativeLayout.LayoutParams
-			if (params != null)
-			{
-				params.topMargin = rect.top - status.height
-			}
-			status.layoutParams = params
-		}
 	}
 
 	companion object

@@ -6,7 +6,7 @@ fileprivate extension UIColor
     static var line : UIColor { return bad }
     static var disabledLine : UIColor { return UIColor(red: 0, green: 0, blue: 0, alpha: 0.38) }
     
-    static var status : UIColor { return UIColor.black.withAlphaComponent(0.6) }
+    static var status : UIColor { return .white }
     static var loading : UIColor { return UIColor.black.withAlphaComponent(0.25) }
 }
 
@@ -26,6 +26,7 @@ class ScannerOverlay: UIView
     var line = UIView()
     var disabledLine = UIView()
     var status = UILabel()
+    var statusBg = UIToolbar()
     
     private var touching = false
     private var state : ScannerState = .normal
@@ -101,6 +102,13 @@ class ScannerOverlay: UIView
         disabledLine.isHidden = true
         addSubview(disabledLine)
         
+        statusBg.barStyle = .black
+        statusBg.tintColor = .white
+        statusBg.isTranslucent = true
+        statusBg.setShadowImage(UIImage(),forToolbarPosition:.any)
+        statusBg.isHidden = true
+        addSubview(statusBg)
+        
         if #available(iOS 8.2, *)
         {
             status.font = .systemFont(ofSize:16,weight:.medium)
@@ -113,7 +121,6 @@ class ScannerOverlay: UIView
         status.lineBreakMode = .byWordWrapping
         status.numberOfLines = 2
         status.textAlignment = .center
-        status.translatesAutoresizingMaskIntoConstraints = false
         addSubview(status)
     }
     
@@ -129,14 +136,26 @@ class ScannerOverlay: UIView
             touching = value
             line.isHidden = value
             disabledLine.isHidden = !value
-            status.text = value ? BarcodeScannerStrings.Deactivated : nil
+            showStatus(value ? BarcodeScannerStrings.Deactivated : nil)
             setNeedsDisplay()
         }
     }
     
+    private func showStatus(_ msg:String?)
+    {
+        statusBg.isHidden = msg == nil
+        status.text = msg
+    }
+    
+    private func showStatus(_ msg:NSAttributedString)
+    {
+        statusBg.isHidden = false
+        status.attributedText = msg
+    }
+    
     func loading(_ msg:String)
     {
-        status.text = msg
+        showStatus(msg)
         state = .loading
         stateChanged()
     }
@@ -153,24 +172,25 @@ class ScannerOverlay: UIView
             {
                 state = .delayedError
             }
-
+            
             if let barcode = barcode
             {
                 let paragraphStyle = NSMutableParagraphStyle()
                 paragraphStyle.lineSpacing = 0
                 paragraphStyle.alignment = .center
                 
-                status.attributedText = NSAttributedString(string:"\(msg)\n(ID: \(barcode))",attributes: [.paragraphStyle:paragraphStyle])
+                showStatus(NSAttributedString(string:"\(msg)\n(ID: \(barcode))",attributes: [.paragraphStyle:paragraphStyle]))
             }
             else
             {
+                showStatus(msg)
                 status.text = msg
             }
         }
         else
         {
             state = .normal
-            status.text = nil
+            showStatus(nil)
         }
         stateChanged()
         
@@ -213,6 +233,24 @@ class ScannerOverlay: UIView
         isTouching = false
     }
     
+    override func layoutSubviews()
+    {
+        super.layoutSubviews()
+        
+        let top : CGFloat
+        if #available(iOS 11.0, *)
+        {
+            top = safeAreaInsets.top
+        }
+        else
+        {
+            top = 0
+        }
+        
+        statusBg.frame = CGRect(x:0,y:0,width:bounds.width,height:50+top)
+        status.frame = CGRect(x:0,y:max(top-5,0),width:bounds.width,height:50)
+    }
+    
     var borderColor : UIColor
     {
         switch state
@@ -232,7 +270,6 @@ class ScannerOverlay: UIView
         let lineRect: CGRect = scanLineRect
         line.frame = lineRect
         disabledLine.frame = lineRect
-        status.frame = CGRect(x:holeRect.minX,y:max(10,holeRect.minY-50-24),width:holeRect.width,height:50)
         
         let cornerspath = UIBezierPath(roundedRect: holeRectIntersection, cornerRadius: cornerRadius)
         cornerspath.lineWidth = 3

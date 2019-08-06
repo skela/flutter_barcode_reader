@@ -5,7 +5,7 @@ import AVFoundation
 protocol BarcodeScannerViewControllerDelegate : NSObjectProtocol 
 {
     func barcodeScannerViewController(_ controller: BarcodeScannerViewController?, didScanBarcodeWithResult result: String?)
-    func barcodeScannerViewController(_ controller: BarcodeScannerViewController?, didFailWithErrorCode errorCode: String)
+    func barcodeScannerViewController(_ controller: BarcodeScannerViewController?, didFailWithErrorCode errorCode: BarcodeScannerErrorCodes)
 }
 
 enum BarcodeScannerImage
@@ -13,15 +13,23 @@ enum BarcodeScannerImage
     case closeButton
 }
 
+class BarcodeConfig
+{
+    static let prefersStatusBarHidden = false
+    static let statusBarStyle : UIStatusBarStyle = .lightContent
+    static let reignoreInterval : TimeInterval = 3
+}
+
 class BarcodeScannerNavigationController : UINavigationController
 {
-    func prefersStatusBarHidden() -> Bool {
-        return true
+    override var prefersStatusBarHidden : Bool
+    {
+        return BarcodeConfig.prefersStatusBarHidden
     }
     
-    func preferredStatusBarStyle() -> UIStatusBarStyle
+    override var preferredStatusBarStyle : UIStatusBarStyle
     {
-        return .lightContent
+        return BarcodeConfig.statusBarStyle
     }
 }
 
@@ -49,7 +57,7 @@ class BarcodeScannerViewController : UIViewController
     private var shouldVibrate : Bool = true
     
     private var dismissAutomaticallyOnResult = true
-    private var ignores = Set<String>()
+    private var ignores = Dictionary<String,TimeInterval>()
     
     convenience init(arguments:[String:Any]?)
     {
@@ -91,14 +99,14 @@ class BarcodeScannerViewController : UIViewController
         }
     }
     
-    func prefersStatusBarHidden() -> Bool
+    override var prefersStatusBarHidden : Bool
     {
-        return true
+        return BarcodeConfig.prefersStatusBarHidden
     }
     
-    func preferredStatusBarStyle() -> UIStatusBarStyle
+    override var preferredStatusBarStyle : UIStatusBarStyle
     {
-        return .lightContent
+        return BarcodeConfig.statusBarStyle
     }
 
     override func viewDidLoad()
@@ -167,7 +175,7 @@ class BarcodeScannerViewController : UIViewController
             if success {
                 self.startScan()
             } else {
-                self.delegate?.barcodeScannerViewController(self, didFailWithErrorCode:"PERMISSION_NOT_GRANTED")
+                self.delegate?.barcodeScannerViewController(self, didFailWithErrorCode:.permissionNotGranted)
                 self.dismiss(animated: false, completion:nil)
             }
             
@@ -253,9 +261,16 @@ class BarcodeScannerViewController : UIViewController
                     scanner.didStartScanningBlock = nil
                 }
                 
-                guard self.ignores.contains(code) == false else
+                if let timestamp = self.ignores[code]
                 {
                     self.overlay?.showFailure(msg:BarcodeScannerStrings.NotFound,barcode:code)
+                    let now = Date().timeIntervalSince1970
+                    if now - timestamp > BarcodeConfig.reignoreInterval
+                    {
+                        self.ignores[code] = now
+                        self.vibrate(.error)
+                        self.delegate?.barcodeScannerViewController(self, didFailWithErrorCode:.barcodeNotFound)
+                    }
                     return
                 }
                 
@@ -380,7 +395,7 @@ class BarcodeScannerViewController : UIViewController
         let barcode = failure["barcode"] as? String
         if let code = barcode
         {
-            ignores.insert(code)
+            ignores[code] = Date().timeIntervalSince1970
         }
         let msg = failure["msg"] as? String
         let delay = failure["delay"] as? Double ?? 0

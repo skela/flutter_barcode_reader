@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 class BarcodeScanner
 {
   static const CameraAccessDenied = 'PERMISSION_NOT_GRANTED';
+  static const BarcodeNotFound = 'BARCODE_NOT_FOUND';
 
   static const MethodChannel _channel = const MethodChannel('com.apptreesoftware.barcode_scan');
 
@@ -21,6 +22,8 @@ class BarcodeScanner
     {
       if (e.code == BarcodeScanner.CameraAccessDenied)
         return Future.value(BarcodeScannerResult(error:BarcodeScannerError.CameraAccessDenied));
+      else if (e.code == BarcodeScanner.BarcodeNotFound)
+        return Future.value(BarcodeScannerResult(error:BarcodeScannerError.BarcodeNotFound));
     }
     return Future.value(BarcodeScannerResult(error:BarcodeScannerError.Other));
   }
@@ -75,6 +78,7 @@ enum BarcodeScannerError
 {
   None,
   CameraAccessDenied,
+  BarcodeNotFound,
   Other
 }
 
